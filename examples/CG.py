@@ -4,6 +4,8 @@ Column Generation Functions
 Authors: Antony Phillips,  Dr Stuart Mitchell  2008
 """
 
+from typing import Dict, List, Optional, Tuple, Union
+
 # Import PuLP modeler functions
 from pulp import *
 
@@ -18,20 +20,24 @@ class Pattern:
     totalRollLength = 20
     lenOpts = ["5", "7", "9"]
 
-    def __init__(self, name, lengths=None):
+    def __init__(self, name: str, lengths: List[int]) -> None:
         self.name = name
         self.lengthsdict = dict(zip(self.lenOpts, lengths))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
-    def trim(self):
+    def trim(self) -> int:
         return Pattern.totalRollLength - sum(
             [int(i) * int(self.lengthsdict[i]) for i in self.lengthsdict]
         )
 
 
-def masterSolve(Patterns, rollData, relax=True):
+def masterSolve(
+    Patterns: List[Pattern],
+    rollData: Dict[str, List[Union[float, int]]],
+    relax: bool = True,
+) -> Union[Dict[str, Optional[float]], Tuple[float, Dict[str, int]]]:
     # The rollData is made into separate dictionaries
     (rollDemand, surplusPrice) = splitDict(rollData)
 
@@ -80,18 +86,23 @@ def masterSolve(Patterns, rollData, relax=True):
 
     else:
         # Creates a dictionary of the variables and their values
-        varsdict = {}
+        varsdict: dict[str, int] = {}
         for v in prob.variables():
-            varsdict[v.name] = v.varValue
+            if v.varValue is None:
+                varsdict[v.name] = 0
+            else:
+                varsdict[v.name] = int(v.varValue)
 
         # The number of rolls of each length in each pattern is printed
-        for i in Patterns:
-            print(i, " = %s" % [i.lengthsdict[j] for j in Pattern.lenOpts])
+        for p in Patterns:
+            print(p, " = %s" % [p.lengthsdict[j] for j in Pattern.lenOpts])
+        my_value: float = value(prob.objective)
+        return my_value, varsdict
 
-        return value(prob.objective), varsdict
 
-
-def subSolve(Patterns, duals):
+def subSolve(
+    Patterns: List[Pattern], duals: Dict[str, Optional[float]]
+) -> Tuple[List[Pattern], bool]:
     # The variable 'prob' is created
     prob = LpProblem("SubProb", LpMinimize)
 
@@ -119,14 +130,17 @@ def subSolve(Patterns, duals):
     prob.roundSolution()
 
     # The new pattern is written to a dictionary
-    varsdict = {}
+    varsdict: dict[str, int] = {}
     newPattern = {}
     for v in prob.variables():
-        varsdict[v.name] = v.varValue
+        if v.varValue is None:
+            varsdict[v.name] = 0
+        else:
+            varsdict[v.name] = int(v.varValue)
     for i, j in zip(
         Pattern.lenOpts, ["Roll_Length_5", "Roll_Length_7", "Roll_Length_9"]
     ):
-        newPattern[i] = int(varsdict[j])
+        newPattern[i] = varsdict[j]
 
     # Check if there are more patterns which would reduce the master LP objective function further
     if value(prob.objective) < -(10**-5):

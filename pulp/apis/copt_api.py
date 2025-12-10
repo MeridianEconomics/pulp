@@ -1,25 +1,33 @@
-import os
-import sys
 import ctypes
+import os
 import subprocess
+import sys
 import warnings
-
 from uuid import uuid4
-from .core import sparse, ctypesArrayFill, PulpSolverError
-from .core import clock, log
 
-from .core import LpSolver, LpSolver_CMD
 from ..constants import (
+    LpBinary,
+    LpConstraintEQ,
+    LpConstraintGE,
+    LpConstraintLE,
+    LpContinuous,
+    LpInteger,
+    LpMaximize,
+    LpMinimize,
+    LpStatusInfeasible,
     LpStatusNotSolved,
     LpStatusOptimal,
-    LpStatusInfeasible,
     LpStatusUnbounded,
     LpStatusUndefined,
 )
-from ..constants import LpContinuous, LpBinary, LpInteger
-from ..constants import LpConstraintEQ, LpConstraintLE, LpConstraintGE
-from ..constants import LpMinimize, LpMaximize
-
+from .core import (
+    LpSolver,
+    LpSolver_CMD,
+    PulpSolverError,
+    clock,
+    ctypesArrayFill,
+    sparse,
+)
 
 # COPT string convention
 if sys.version_info >= (3, 0):
@@ -853,7 +861,7 @@ class COPT(LpSolver):
 
     try:
         global coptpy
-        import coptpy
+        import coptpy  # type: ignore[import-not-found, import-untyped, unused-ignore]
     except:
 
         def available(self):
@@ -894,7 +902,6 @@ class COPT(LpSolver):
                 logPath=logPath,
                 warmStart=warmStart,
             )
-
             self.coptenv = coptpy.Envr()
             self.coptmdl = self.coptenv.createModel()
 
@@ -937,18 +944,23 @@ class COPT(LpSolver):
                 var.varValue = value
 
             if not model.ismip:
-                # NOTE: slacks in COPT are activities of rows
-                slacks = model.getInfo("Slack", model.getConstrs())
-                for constr, value in zip(lp.constraints.values(), slacks):
-                    constr.slack = value
+                # COPT returns an error with an empty model
+                try:
+                    # NOTE: slacks in COPT are activities of rows
+                    slacks = model.getInfo("Slack", model.getConstrs())
+                    for constr, value in zip(lp.constraints.values(), slacks):
+                        constr.slack = value
 
-                redcosts = model.getInfo("RedCost", model.getVars())
-                for var, value in zip(lp._variables, redcosts):
-                    var.dj = value
+                    redcosts = model.getInfo("RedCost", model.getVars())
+                    for var, value in zip(lp._variables, redcosts):
+                        var.dj = value
 
-                duals = model.getInfo("Dual", model.getConstrs())
-                for constr, value in zip(lp.constraints.values(), duals):
-                    constr.pi = value
+                    duals = model.getInfo("Dual", model.getConstrs())
+                    for constr, value in zip(lp.constraints.values(), duals):
+                        constr.pi = value
+                except coptpy.CoptError:
+                    # sometimes the model is not solved, and thus these infos are not available
+                    pass
 
             return status
 
@@ -1003,8 +1015,8 @@ class COPT(LpSolver):
             if self.optionsDict.get("warmStart", False):
                 for var in lp._variables:
                     if var.varValue is not None:
-                        self.coptmdl.setMipStart(var.solverVar, var.varValue)
-                self.coptmdl.loadMipStart()
+                        lp.solverModel.setMipStart(var.solverVar, var.varValue)
+                lp.solverModel.loadMipStart()
 
             for name, constraint in lp.constraints.items():
                 expr = coptpy.LinExpr(

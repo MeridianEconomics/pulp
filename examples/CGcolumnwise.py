@@ -4,8 +4,11 @@ Columnwise Column Generation Functions
 Authors: Antony Phillips,  Dr Stuart Mitchell  2008
 """
 
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 # Import PuLP modeler functions
 from pulp import *
+from pulp.pulp import LpConstraintVar, LpProblem
 
 
 class Pattern:
@@ -19,7 +22,7 @@ class Pattern:
     lenOpts = ["5", "7", "9"]
     numPatterns = 0
 
-    def __init__(self, name, lengths=None):
+    def __init__(self, name: str, lengths: List[int]) -> None:
         self.name = name
         self.lengthsdict = dict(zip(self.lenOpts, lengths))
         Pattern.numPatterns += 1
@@ -27,13 +30,13 @@ class Pattern:
     def __str__(self):
         return self.name
 
-    def trim(self):
+    def trim(self) -> int:
         return Pattern.totalRollLength - sum(
             [int(i) * int(self.lengthsdict[i]) for i in self.lengthsdict]
         )
 
 
-def createMaster():
+def createMaster() -> Tuple[LpProblem, LpConstraintVar, Dict[str, LpConstraintVar]]:
     rollData = {  # Length Demand SalePrice
         "5": [150, 0.25],
         "7": [200, 0.33],
@@ -71,7 +74,11 @@ def createMaster():
     return prob, obj, constraints
 
 
-def addPatterns(obj, constraints, newPatterns):
+def addPatterns(
+    obj: LpConstraintVar,
+    constraints: Dict[str, LpConstraintVar],
+    newPatterns: List[List[int]],
+) -> None:
     # A list called Patterns is created to contain all the Pattern class
     # objects created in this function call
     Patterns = []
@@ -82,7 +89,7 @@ def addPatterns(obj, constraints, newPatterns):
         for j, k in zip(i, Pattern.lenOpts):
             lsum += j * int(k)
         if lsum > Pattern.totalRollLength:
-            raise ("Length Options too large for Roll")
+            raise Exception("Length Options too large for Roll")
 
         # The number of rolls of each length in each new pattern is printed
         print("P" + str(Pattern.numPatterns), "=", i)
@@ -92,20 +99,22 @@ def addPatterns(obj, constraints, newPatterns):
 
     # The pattern variables are created
     pattVars = []
-    for i in Patterns:
+    for p in Patterns:
         pattVars += [
             LpVariable(
-                "Pattern " + i.name,
+                "Pattern " + p.name,
                 0,
                 None,
                 LpContinuous,
-                (i.cost - Pattern.trimValue * i.trim()) * obj
-                + lpSum([constraints[l] * i.lengthsdict[l] for l in Pattern.lenOpts]),
+                (p.cost - Pattern.trimValue * p.trim()) * obj
+                + lpSum([constraints[l] * p.lengthsdict[l] for l in Pattern.lenOpts]),
             )
         ]
 
 
-def masterSolve(prob, relax=True):
+def masterSolve(
+    prob: LpProblem, relax: bool = True
+) -> Union[Tuple[float, Dict[str, int]], Dict[str, Optional[float]]]:
     # Unrelaxes the Integer Constraint
     if not relax:
         for v in prob.variables():
@@ -123,14 +132,17 @@ def masterSolve(prob, relax=True):
         return duals
     else:
         # A dictionary of variable values and the objective value are returned
-        varsdict = {}
+        varsdict: dict[str, int] = {}
         for v in prob.variables():
-            varsdict[v.name] = v.varValue
+            if v.varValue is None:
+                varsdict[v.name] = 0
+            else:
+                varsdict[v.name] = int(v.varValue)
 
         return value(prob.objective), varsdict
 
 
-def subSolve(duals):
+def subSolve(duals: Dict[str, Optional[float]]) -> List[Union[Any, List[int]]]:
     # The variable 'prob' is created
     prob = LpProblem("SubProb", LpMinimize)
 
@@ -160,15 +172,18 @@ def subSolve(duals):
     newPatterns = []
     # Check if there are more patterns which would reduce the master LP objective function further
     if value(prob.objective) < -(10**-5):
-        varsdict = {}
+        varsdict: dict[str, int] = {}
         for v in prob.variables():
-            varsdict[v.name] = v.varValue
+            if v.varValue is None:
+                varsdict[v.name] = 0
+            else:
+                varsdict[v.name] = int(v.varValue)
         # Adds the new pattern to the newPatterns list
         newPatterns += [
             [
-                int(varsdict["Roll_Length_5"]),
-                int(varsdict["Roll_Length_7"]),
-                int(varsdict["Roll_Length_9"]),
+                varsdict["Roll_Length_5"],
+                varsdict["Roll_Length_7"],
+                varsdict["Roll_Length_9"],
             ]
         ]
 
